@@ -1,0 +1,127 @@
+<?php
+
+/**
+ * @file
+ * Main file for Copy Prevention module.
+ */
+
+use Drupal\Core\Routing\RouteMatchInterface;
+
+/**
+ * Implements hook_help().
+ */
+function copyprevention_help($route_name, RouteMatchInterface $route_match) {
+  switch ($route_name) {
+    case 'help.page.copyprevention':
+      $output = '<p>' . t('This module includes several different technical ways/methods to make
+copying/stealing information/images from your site harder than it usually is
+Disable text selection
+Disable copy to clipboard
+Disable right-click context menu on all site content
+Disable right-click context menu only on images (<img> tag)
+Place transparent image above all your images - this will protect your real
+images from being saved using context menu or drag-and-drop to desktop.
+Protect/hide your images from search engine indexes so that your images don\'t
+show up in image searches - add "noimageindex" robots tag and disallow image
+files indexing in robots.txt') . '</p>';
+
+      return $output;
+  }
+}
+
+/**
+ * Implements hook_preprocess_html().
+ */
+function copyprevention_preprocess_html(&$vars) {
+  if (!_copyprevention_is_enabled()) {
+    return;
+  }
+
+  $body_settings = array_filter(\Drupal::configFactory()->getEditable('copyprevention.settings')->get('copyprevention_body'));
+  foreach ($body_settings as $value) {
+    $vars['attributes']['on' . $value] = 'return false';
+  }
+}
+
+/**
+ * Implements hook_page_attachments().
+ */
+function copyprevention_page_attachments(&$page) {
+  global $base_url;
+
+  $copyprevention_images_search = array_filter(\Drupal::configFactory()->getEditable('copyprevention.settings')->get('copyprevention_images_search'));
+  if (array_key_exists('httpheader', $copyprevention_images_search)) {
+    $page['#attached']['http_header'][] = ['X-Robots-Tag', 'noimageindex', TRUE];
+  }
+  if (array_key_exists('pagehead', $copyprevention_images_search)) {
+    $data = [
+      '#tag' => 'meta',
+      '#attributes' => [
+        'name' => 'robots',
+        'content' => 'noimageindex',
+      ],
+    ];
+    $page['#attached']['html_head'][] = [$data, 'copyprevention_images_search'];
+  }
+
+  if (!_copyprevention_is_enabled()) {
+    return;
+  }
+
+  $path = $base_url . '/' . \Drupal::service('extension.list.module')->getPath('copyprevention');
+  $settings = [
+    'body' => array_filter(\Drupal::configFactory()->getEditable('copyprevention.settings')->get('copyprevention_body')),
+    'images' => array_filter(\Drupal::configFactory()->getEditable('copyprevention.settings')->get('copyprevention_images')),
+    'images_min_dimension' => \Drupal::configFactory()->getEditable('copyprevention.settings')->get('copyprevention_images_min_dimension'),
+    'transparentgif' => \Drupal::service('file_url_generator')->generateAbsoluteString($path . '/transparent.gif'),
+
+  ];
+  $page['#attached']['drupalSettings']['copyprevention'] = $settings;
+  $page['#attached']['library'][] = 'copyprevention/copyprevention';
+}
+
+/**
+ * Returns whether or not copyprevention should be enabled.
+ *
+ * @return bool
+ */
+function _copyprevention_is_enabled() {
+  $enable = &drupal_static(__FUNCTION__);
+  if (isset($enable)) {
+    return $enable;
+  }
+
+  $enable = TRUE;
+  if (\Drupal::currentUser()->hasPermission('bypass copy prevention')) {
+    $enable = FALSE;
+  }
+  else {
+    $module_handler = \Drupal::moduleHandler();
+    $module_handler->alter('copyprevention_enable', $enable);
+  }
+
+  return $enable;
+}
+
+/**
+ * Implements hook_robotstxt().
+ */
+function copyprevention_robotstxt() {
+  $copyprevention_images_search = array_filter(\Drupal::configFactory()->getEditable('copyprevention.settings')->get('copyprevention_images_search'));
+
+  if (array_key_exists('robotstxt', $copyprevention_images_search)) {
+    return [
+      '#Copy Prevention: protect/hide images from search engines indexing',
+      'Disallow: *.jpg',
+      'Disallow: *.JPG',
+      'Disallow: *.jpeg',
+      'Disallow: *.JPEG',
+      'Disallow: *.png',
+      'Disallow: *.PNG',
+      'Disallow: *.gif',
+      'Disallow: *.GIF',
+    ];
+  }
+
+  return [];
+}
